@@ -1,0 +1,53 @@
+name: Build and Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  WINDOWS_TARGET: x86_64-pc-windows-msvc
+  WINDOWS_CLIENT_EXE: sync-image-client.exe
+  WINDOWS_RELEASE_ZIP: sync-image-client-windows-x86_64.zip
+
+jobs:
+  build-windows-client:
+    name: Build Windows client
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ env.WINDOWS_TARGET }}
+
+      - name: Build release binary
+        run: cargo build --locked --release --target $env:WINDOWS_TARGET -p sync_image_client
+
+      - name: Package Windows release
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist
+          Copy-Item "target/$env:WINDOWS_TARGET/release/$env:WINDOWS_CLIENT_EXE" "dist/$env:WINDOWS_CLIENT_EXE"
+          Copy-Item "examples/config.toml" "dist/config.toml"
+          Compress-Archive -Path "dist/$env:WINDOWS_CLIENT_EXE", "dist/config.toml" -DestinationPath "dist/$env:WINDOWS_RELEASE_ZIP" -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sync-image-client-windows-x86_64
+          path: dist/${{ env.WINDOWS_RELEASE_ZIP }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: dist/${{ env.WINDOWS_RELEASE_ZIP }}

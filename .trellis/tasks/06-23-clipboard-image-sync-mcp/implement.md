@@ -75,6 +75,12 @@ Task has been activated and implementation has started.
   - Mount `/mnt/xy_internel/share/claude:/data/claude-images:ro`.
   - Set `CLAUDE_IMAGE_ROOT=/data/claude-images` and `CLAUDE_IMAGE_USER=$USER`.
 
+- [x] Add GitHub Actions packaging for the Windows client.
+  - Build `sync-image-client` on `windows-latest`.
+  - Package `sync-image-client.exe` with example `config.toml`.
+  - Upload the zip artifact for manual runs.
+  - Attach the zip to GitHub Releases when pushing `v*` tags.
+
 - [x] Write setup and usage docs.
   - Windows `.exe` plus example `config.toml`.
   - Upload host and NAS assumptions.
@@ -100,6 +106,7 @@ Task has been activated and implementation has started.
   - Clipboard screenshot/static image.
   - Copied PNG file.
   - Copied JPEG file.
+- [ ] Run GitHub Actions Windows release workflow. Not run: requires GitHub-hosted Windows runner after pushing the workflow.
 - [x] Validate rejection of unsupported input with clear messages.
 - [ ] Build MCP Docker image. Not run: Docker is not installed in this environment.
 - [ ] Run MCP server through Docker with a mounted fixture directory. Not run: Docker is not installed in this environment.

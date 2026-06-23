@@ -65,6 +65,28 @@ sync-image-client --config C:\path\config.toml run
 
 While it is running, press `Ctrl+Alt+U` to upload the current clipboard image or a copied PNG/JPEG file. Success and failure are reported through terminal logs and Windows toast notifications.
 
+## Windows Release Builds
+
+GitHub Actions builds the Windows client on `windows-latest` when a tag matching `v*` is pushed. The release asset is:
+
+```text
+sync-image-client-windows-x86_64.zip
+```
+
+The zip contains:
+
+- `sync-image-client.exe`
+- `config.toml`
+
+Create a release build by pushing a version tag:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The workflow can also be run manually from the GitHub Actions page for build verification without creating a release.
+
 ## MCP Server
 
 Build the container:
@@ -101,4 +123,3 @@ Out of scope for MVP:
 - WebP, animated GIF, PDF, or multi-file drag/drop input
 - password SSH login
 - system `scp` or OpenSSH ControlMaster
-

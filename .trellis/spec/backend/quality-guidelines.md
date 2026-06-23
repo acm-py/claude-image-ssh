@@ -76,6 +76,85 @@ run: cargo build --locked --release --target $env:WINDOWS_TARGET -p sync_image_c
 path: dist/${{ env.WINDOWS_RELEASE_ZIP }}
 ```
 
+## Scenario: Windows FFI With windows-sys 0.61
+
+### 1. Scope / Trigger
+
+- Trigger: changes to Windows-only client code that calls Win32 APIs through `windows-sys`.
+- Scope: `crates/sync_image_client/src/*`, Windows target dependency features in `crates/sync_image_client/Cargo.toml`, and GitHub Actions Windows builds.
+
+### 2. Signatures
+
+- Hotkey APIs:
+  - `RegisterHotKey(HWND, i32, HOT_KEY_MODIFIERS, u32) -> BOOL`
+  - `UnregisterHotKey(HWND, i32) -> BOOL`
+  - `GetMessageW(*mut MSG, HWND, u32, u32) -> BOOL`
+- Clipboard file APIs:
+  - `IsClipboardFormatAvailable(u32) -> BOOL`
+  - `GetClipboardData(u32) -> HANDLE`
+  - `OpenClipboard(HWND) -> BOOL`
+  - `DragQueryFileW(HDROP, u32, PWSTR, u32) -> u32`
+
+### 3. Contracts
+
+- `RegisterHotKey`, `UnregisterHotKey`, and `MOD_*` constants come from `windows_sys::Win32::UI::Input::KeyboardAndMouse`.
+- `GetMessageW`, `MSG`, and `WM_HOTKEY` come from `windows_sys::Win32::UI::WindowsAndMessaging`.
+- `CF_HDROP` comes from `windows_sys::Win32::System::Ole` and must be converted to `u32` before passing to `DataExchange` APIs.
+- Null `HWND` / `HANDLE` values are raw pointers in `windows-sys` 0.61; use `std::ptr::null_mut()` for inputs and `.is_null()` for returned handles.
+- `Cargo.toml` must enable all feature modules used by imports, including `Win32_UI_Input_KeyboardAndMouse` and `Win32_System_Ole`.
+
+### 4. Validation & Error Matrix
+
+- Missing `Win32_UI_Input_KeyboardAndMouse` feature -> unresolved import for `RegisterHotKey` or `MOD_*`.
+- Importing `RegisterHotKey` from `WindowsAndMessaging` -> unresolved import on Windows CI.
+- Importing `CF_HDROP` from `System::DataExchange` -> unresolved import on Windows CI.
+- Passing integer `0` where `HWND` is expected -> pointer type mismatch.
+- Comparing `HANDLE` with integer `0` -> pointer type mismatch.
+
+### 5. Good/Base/Bad Cases
+
+- Good: Windows CI builds `sync_image_client` for `x86_64-pc-windows-msvc` with `--locked`.
+- Base: Linux CI passes native `cargo check`, `cargo test`, and `cargo clippy`, but this does not exercise Windows-only `cfg(windows)` code.
+- Bad: relying only on Linux native checks after changing Windows FFI imports.
+
+### 6. Tests Required
+
+- For Windows FFI changes, run `cargo check --locked --target x86_64-pc-windows-msvc -p sync_image_client` in an environment with the target installed, or run the GitHub Actions Windows release workflow.
+- Always run native `cargo fmt --check`, `cargo check --workspace --locked`, `cargo test --workspace --locked`, and `cargo clippy --workspace --all-targets --locked -- -D warnings`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    MOD_ALT, RegisterHotKey, UnregisterHotKey,
+};
+
+RegisterHotKey(0, HOTKEY_ID, modifiers, key_code);
+if GetClipboardData(CF_HDROP) == 0 {
+    return Ok(None);
+}
+```
+
+#### Correct
+
+```rust
+use std::ptr;
+use windows_sys::Win32::System::Ole::CF_HDROP;
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+    MOD_ALT, RegisterHotKey, UnregisterHotKey,
+};
+
+RegisterHotKey(ptr::null_mut(), HOTKEY_ID, modifiers, key_code);
+
+let file_drop_format = u32::from(CF_HDROP);
+let handle = GetClipboardData(file_drop_format);
+if handle.is_null() {
+    return Ok(None);
+}
+```
+
 ---
 
 ## Forbidden Patterns

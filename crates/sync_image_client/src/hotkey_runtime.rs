@@ -10,12 +10,14 @@ where
 
 #[cfg(windows)]
 mod platform {
+    use std::ptr;
+
     use anyhow::{Result, bail};
     use sync_image_core::Hotkey;
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetMessageW, MOD_ALT, MOD_CONTROL, MOD_SHIFT, MSG, RegisterHotKey, UnregisterHotKey,
-        WM_HOTKEY,
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        MOD_ALT, MOD_CONTROL, MOD_SHIFT, RegisterHotKey, UnregisterHotKey,
     };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetMessageW, MSG, WM_HOTKEY};
 
     const HOTKEY_ID: i32 = 0x4349;
 
@@ -27,7 +29,7 @@ mod platform {
         let key_code = hotkey.key as u32;
 
         unsafe {
-            if RegisterHotKey(0, HOTKEY_ID, modifiers, key_code) == 0 {
+            if RegisterHotKey(ptr::null_mut(), HOTKEY_ID, modifiers, key_code) == 0 {
                 bail!("failed to register global hotkey {hotkey}");
             }
         }
@@ -35,7 +37,7 @@ mod platform {
         let _guard = HotkeyGuard;
         let mut message = MSG::default();
         loop {
-            let result = unsafe { GetMessageW(&mut message, 0, 0, 0) };
+            let result = unsafe { GetMessageW(&mut message, ptr::null_mut(), 0, 0) };
             if result == -1 {
                 bail!("failed while waiting for Windows messages");
             }
@@ -69,7 +71,7 @@ mod platform {
     impl Drop for HotkeyGuard {
         fn drop(&mut self) {
             unsafe {
-                UnregisterHotKey(0, HOTKEY_ID);
+                UnregisterHotKey(ptr::null_mut(), HOTKEY_ID);
             }
         }
     }

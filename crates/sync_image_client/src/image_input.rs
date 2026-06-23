@@ -61,8 +61,11 @@ mod platform {
     use arboard::Clipboard;
     use image::{DynamicImage, RgbaImage};
     use windows_sys::Win32::{
-        System::DataExchange::{
-            CF_HDROP, CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
+        System::{
+            DataExchange::{
+                CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
+            },
+            Ole::CF_HDROP,
         },
         UI::Shell::DragQueryFileW,
     };
@@ -99,12 +102,13 @@ mod platform {
     fn copied_file_path() -> Result<Option<PathBuf>> {
         let _guard = ClipboardGuard::open()?;
         unsafe {
-            if IsClipboardFormatAvailable(CF_HDROP) == 0 {
+            let file_drop_format = u32::from(CF_HDROP);
+            if IsClipboardFormatAvailable(file_drop_format) == 0 {
                 return Ok(None);
             }
 
-            let handle = GetClipboardData(CF_HDROP);
-            if handle == 0 {
+            let handle = GetClipboardData(file_drop_format);
+            if handle.is_null() {
                 return Ok(None);
             }
 
@@ -130,7 +134,7 @@ mod platform {
     impl ClipboardGuard {
         fn open() -> Result<Self> {
             unsafe {
-                if OpenClipboard(0) == 0 {
+                if OpenClipboard(ptr::null_mut()) == 0 {
                     bail!("failed to open clipboard");
                 }
             }

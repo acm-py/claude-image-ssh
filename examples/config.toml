@@ -1,0 +1,10 @@
+user_name = "alice"
+hotkey = "Ctrl+Alt+U"
+
+[upload]
+host = "upload-host.example.internal"
+port = 22
+user = "claude-upload"
+private_key_path = "C:\\Users\\Alice\\.ssh\\claude_upload_ed25519"
+shared_image_root = "/mnt/xy_internel/share/claude"
+

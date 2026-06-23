@@ -1,0 +1,17 @@
+[package]
+name = "sync_image_mcp"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "sync-image-mcp"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+base64.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sync_image_core = { path = "../sync_image_core" }
+

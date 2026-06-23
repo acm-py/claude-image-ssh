@@ -1,0 +1,31 @@
+[package]
+name = "sync_image_client"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "sync-image-client"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+clap.workspace = true
+image.workspace = true
+rpassword.workspace = true
+sha2.workspace = true
+ssh2.workspace = true
+sync_image_core = { path = "../sync_image_core" }
+uuid.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+arboard = "3"
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_DataExchange",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+winrt-notification = "0.5"
+

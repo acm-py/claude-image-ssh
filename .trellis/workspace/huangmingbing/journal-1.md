@@ -39,3 +39,36 @@ Implemented the clipboard image sync MCP MVP, added Windows client release packa
 ### Next Steps
 
 - None - task complete
+
+
+## Session 2: Tauri GUI sync image client
+
+**Date**: 2026-06-24
+**Task**: Tauri GUI sync image client
+**Branch**: `main`
+
+### Summary
+
+Implemented a Tauri desktop GUI MVP for sync-image client, refactored the Rust client into reusable library/runtime surfaces, added Windows desktop GitHub Actions build, and validated Rust/frontend checks.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `21badc0` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

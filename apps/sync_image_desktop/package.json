@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "apply-build-config": "node scripts/apply-build-config.mjs",
     "dev": "vite --port 1420",
     "build": "tsc && vite build",
     "preview": "vite preview",

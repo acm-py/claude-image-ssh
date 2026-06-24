@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Sync Image Desktop",
+  "productName": "qy-image-upload",
   "version": "0.1.0",
   "identifier": "com.hmb.sync-image-desktop",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Sync Image Desktop",
+        "title": "qy-image-upload",
         "width": 920,
         "height": 760,
         "minWidth": 720,

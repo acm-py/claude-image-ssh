@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Sync Image Desktop icon">
+  <rect width="512" height="512" rx="96" fill="#1f6feb"/>
+  <path
+    d="M132 172c0-22.1 17.9-40 40-40h168c22.1 0 40 17.9 40 40v168c0 22.1-17.9 40-40 40H172c-22.1 0-40-17.9-40-40V172z"
+    fill="#f6f8fa"
+  />
+  <path d="M172 324l58-70 46 55 28-34 56 69H172z" fill="#238636"/>
+  <circle cx="316" cy="196" r="32" fill="#fb8500"/>
+  <path
+    d="M146 138h54v32h-54c-13.3 0-24 10.7-24 24v54H90v-54c0-30.9 25.1-56 56-56zM366 374h-54v-32h54c13.3 0 24-10.7 24-24v-54h32v54c0 30.9-25.1 56-56 56z"
+    fill="#ffffff"
+  />
+  <path
+    d="M172 116l-32 38 32 38v-24h52v-28h-52v-24zM340 320v-24h-52v-28h52v-24l32 38-32 38z"
+    fill="#ffffff"
+  />
+</svg>

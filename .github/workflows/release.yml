@@ -77,6 +77,10 @@ jobs:
         working-directory: apps/sync_image_desktop
         run: npm ci
 
+      - name: Apply desktop build config
+        working-directory: apps/sync_image_desktop
+        run: npm run apply-build-config
+
       - name: Build Tauri desktop app
         working-directory: apps/sync_image_desktop
         run: npm run tauri -- build --target $env:WINDOWS_TARGET

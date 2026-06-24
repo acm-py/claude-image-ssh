@@ -3,6 +3,7 @@ members = [
     "crates/sync_image_core",
     "crates/sync_image_client",
     "crates/sync_image_mcp",
+    "apps/sync_image_desktop/src-tauri",
 ]
 resolver = "2"
 

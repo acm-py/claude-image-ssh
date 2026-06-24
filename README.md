@@ -67,7 +67,9 @@ While it is running, press `Ctrl+Alt+U` to upload the current clipboard image or
 
 ## Windows Release Builds
 
-GitHub Actions builds the Windows client on `windows-latest` when a tag matching `v*` is pushed. The release asset is:
+GitHub Actions builds the Windows CLI client and the Windows Tauri desktop app on `windows-latest` when a tag matching `v*` is pushed.
+
+The CLI release asset is:
 
 ```text
 sync-image-client-windows-x86_64.zip
@@ -78,6 +80,14 @@ The zip contains:
 - `sync-image-client.exe`
 - `config.toml`
 
+The desktop GUI artifact is:
+
+```text
+sync-image-desktop-windows-x86_64.zip
+```
+
+The desktop bundle is produced by the `build-windows-desktop` GitHub Actions job. Windows GUI build verification should be performed through GitHub Actions because local Linux builds require WebKitGTK system libraries and do not exercise the Windows hotkey path.
+
 Create a release build by pushing a version tag:
 
 ```bash
@@ -86,6 +96,24 @@ git push origin v0.1.0
 ```
 
 The workflow can also be run manually from the GitHub Actions page for build verification without creating a release.
+
+## Windows Desktop GUI
+
+The Tauri desktop app lives in:
+
+```text
+apps/sync_image_desktop
+```
+
+It is a minimal control panel over the existing Windows client flow:
+
+- edit and save the default client config
+- run the same SSH/SFTP connectivity check as the CLI
+- start and stop the hotkey upload runtime
+- confirm first-time SSH host keys in-app
+- enter private-key passphrases on demand without persisting them
+
+The existing CLI remains supported and is still the underlying source of truth for upload behavior.
 
 ## MCP Server
 

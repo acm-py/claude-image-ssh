@@ -1,16 +1,20 @@
 use std::{
     fs,
-    io::{self, Write},
+    io::Write,
     net::TcpStream,
     path::{Path, PathBuf},
 };
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow};
 use chrono::Utc;
 use sha2::{Digest, Sha256};
 use ssh2::{Session, Sftp};
 use sync_image_core::{ClientConfig, build_user_dir, format_upload_filename};
 use uuid::Uuid;
+
+use crate::interaction::{
+    InteractionRequest, InteractionResponse, PrivateKeyPassphraseRequest, TrustHostKeyRequest,
+};
 
 const CHECK_FILE_NAME: &str = ".claude-image-sync-check.tmp";
 
@@ -24,9 +28,24 @@ pub struct SftpUploader {
     session: Session,
 }
 
+#[derive(Debug)]
+pub enum ConnectError {
+    NeedsInteraction(InteractionRequest),
+    Failed(anyhow::Error),
+}
+
+impl From<anyhow::Error> for ConnectError {
+    fn from(value: anyhow::Error) -> Self {
+        Self::Failed(value)
+    }
+}
+
 impl SftpUploader {
-    pub fn connect(config: ClientConfig) -> Result<Self> {
-        let session = connect_session(&config)?;
+    pub fn connect(
+        config: ClientConfig,
+        response: Option<InteractionResponse>,
+    ) -> std::result::Result<Self, ConnectError> {
+        let session = connect_session(&config, response)?;
         Ok(Self { config, session })
     }
 
@@ -59,7 +78,12 @@ impl SftpUploader {
     }
 
     fn reconnect(&mut self) -> Result<()> {
-        self.session = connect_session(&self.config)?;
+        self.session = connect_session(&self.config, None).map_err(|err| match err {
+            ConnectError::NeedsInteraction(request) => {
+                anyhow::anyhow!("reconnect requires interaction: {request:?}")
+            }
+            ConnectError::Failed(err) => err,
+        })?;
         Ok(())
     }
 
@@ -94,19 +118,26 @@ impl SftpUploader {
     }
 }
 
-fn connect_session(config: &ClientConfig) -> Result<Session> {
+fn connect_session(
+    config: &ClientConfig,
+    response: Option<InteractionResponse>,
+) -> std::result::Result<Session, ConnectError> {
     let address = format!("{}:{}", config.upload.host, config.upload.port);
     let tcp =
         TcpStream::connect(&address).with_context(|| format!("failed to connect {address}"))?;
     let mut session = Session::new().context("failed to create SSH session")?;
     session.set_tcp_stream(tcp);
     session.handshake().context("SSH handshake failed")?;
-    verify_host_key(config, &session)?;
-    authenticate(config, &mut session)?;
+    verify_host_key(config, &session, response.clone())?;
+    authenticate(config, &mut session, response)?;
     Ok(session)
 }
 
-fn verify_host_key(config: &ClientConfig, session: &Session) -> Result<()> {
+fn verify_host_key(
+    config: &ClientConfig,
+    session: &Session,
+    response: Option<InteractionResponse>,
+) -> std::result::Result<(), ConnectError> {
     let (host_key, _) = session
         .host_key()
         .context("SSH server did not provide a host key")?;
@@ -117,55 +148,79 @@ fn verify_host_key(config: &ClientConfig, session: &Session) -> Result<()> {
         let expected = fs::read_to_string(&cache_path)
             .with_context(|| format!("failed to read {}", cache_path.display()))?;
         if expected.trim() != fingerprint {
-            bail!(
+            return Err(anyhow!(
                 "upload host key changed for {}:{}; expected {}, got {}",
                 config.upload.host,
                 config.upload.port,
                 expected.trim(),
                 fingerprint
-            );
+            )
+            .into());
         }
         return Ok(());
     }
 
-    println!(
-        "First connection to {}:{} host key SHA256 fingerprint:\n{}",
-        config.upload.host, config.upload.port, fingerprint
-    );
-    print!("Trust this host key? [y/N] ");
-    io::stdout().flush()?;
+    let trusted = match response.and_then(|value| value.expect_trust_host_key()) {
+        Some(value) => value,
+        None => {
+            return Err(ConnectError::NeedsInteraction(
+                InteractionRequest::TrustHostKey(TrustHostKeyRequest {
+                    host: config.upload.host.clone(),
+                    port: config.upload.port,
+                    fingerprint,
+                }),
+            ));
+        }
+    };
 
-    let mut answer = String::new();
-    io::stdin().read_line(&mut answer)?;
-    if !matches!(answer.trim(), "y" | "Y" | "yes" | "YES") {
-        bail!("host key was not trusted");
+    if !trusted {
+        return Err(anyhow!("host key was not trusted").into());
     }
 
     if let Some(parent) = cache_path.parent() {
-        fs::create_dir_all(parent)?;
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
     }
-    fs::write(&cache_path, format!("{fingerprint}\n"))
+    let fingerprint = session
+        .host_key()
+        .context("SSH server did not provide a host key")?
+        .0;
+    fs::write(&cache_path, format!("{}\n", sha256_hex(fingerprint)))
         .with_context(|| format!("failed to write {}", cache_path.display()))?;
     Ok(())
 }
 
-fn authenticate(config: &ClientConfig, session: &mut Session) -> Result<()> {
+fn authenticate(
+    config: &ClientConfig,
+    session: &mut Session,
+    response: Option<InteractionResponse>,
+) -> std::result::Result<(), ConnectError> {
     let key_path = &config.upload.private_key_path;
     match session.userauth_pubkey_file(&config.upload.user, None, key_path, None) {
         Ok(()) if session.authenticated() => return Ok(()),
-        Ok(()) => bail!("private key authentication did not complete"),
+        Ok(()) => return Err(anyhow!("private key authentication did not complete").into()),
         Err(first_error) => {
             eprintln!("private key auth without passphrase failed: {first_error}");
         }
     }
 
-    let passphrase = rpassword::prompt_password("Private key passphrase: ")?;
+    let passphrase = match response.and_then(|value| value.expect_private_key_passphrase()) {
+        Some(value) => value,
+        None => {
+            return Err(ConnectError::NeedsInteraction(
+                InteractionRequest::PrivateKeyPassphrase(PrivateKeyPassphraseRequest {
+                    private_key_path: key_path.clone(),
+                }),
+            ));
+        }
+    };
+
     session
         .userauth_pubkey_file(&config.upload.user, None, key_path, Some(&passphrase))
         .context("private key authentication failed")?;
 
     if !session.authenticated() {
-        bail!("private key authentication did not complete");
+        return Err(anyhow!("private key authentication did not complete").into());
     }
 
     Ok(())

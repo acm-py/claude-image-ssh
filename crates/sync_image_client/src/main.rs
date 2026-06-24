@@ -1,15 +1,11 @@
-mod cli;
-mod hotkey_runtime;
-mod image_input;
-mod notify;
-mod upload;
-
 use anyhow::Result;
 use clap::Parser;
-
-use cli::{Cli, Command};
+use sync_image_client::{
+    cli::{Cli, Command},
+    client::{ClientActionState, run_check, run_client_once},
+    interaction::{InteractionRequest, InteractionResponse},
+};
 use sync_image_core::ClientConfig;
-use upload::SftpUploader;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -17,32 +13,64 @@ fn main() -> Result<()> {
 
     match cli.command.unwrap_or(Command::Run) {
         Command::Run => run_client(config),
-        Command::Check => run_check(config),
+        Command::Check => run_check_command(config),
     }
 }
 
 fn run_client(config: ClientConfig) -> Result<()> {
-    let hotkey = config.hotkey.parse()?;
-    let mut uploader = SftpUploader::connect(config)?;
-
-    println!("sync-image-client is running. Press {hotkey} to upload the current image.");
-    hotkey_runtime::run(&hotkey, move || {
-        let result = image_input::capture_current_image().and_then(|image| {
-            uploader
-                .upload_png(&image.png_bytes)
-                .map(|upload| (image, upload))
-        });
-
-        match result {
-            Ok((image, upload)) => notify::upload_success(&upload.file_name, image.source.label()),
-            Err(err) => notify::upload_failure(&err.to_string()),
+    let mut response = None;
+    loop {
+        match run_client_once(config.clone(), response.take())? {
+            ClientActionState::Ready(()) => return Ok(()),
+            ClientActionState::NeedsInteraction(request) => {
+                response = Some(prompt_for_interaction(request)?);
+            }
         }
-    })
+    }
 }
 
-fn run_check(config: ClientConfig) -> Result<()> {
-    let mut uploader = SftpUploader::connect(config)?;
-    uploader.check_remote_write_access()?;
-    println!("check passed: configuration, SSH/SFTP, host key and remote write access are valid");
-    Ok(())
+fn run_check_command(config: ClientConfig) -> Result<()> {
+    let mut response = None;
+    loop {
+        match run_check(config.clone(), response.take())? {
+            ClientActionState::Ready(()) => {
+                println!(
+                    "check passed: configuration, SSH/SFTP, host key and remote write access are valid"
+                );
+                return Ok(());
+            }
+            ClientActionState::NeedsInteraction(request) => {
+                response = Some(prompt_for_interaction(request)?);
+            }
+        }
+    }
+}
+
+fn prompt_for_interaction(request: InteractionRequest) -> Result<InteractionResponse> {
+    match request {
+        InteractionRequest::TrustHostKey(prompt) => {
+            println!(
+                "First connection to {}:{} host key SHA256 fingerprint:\n{}",
+                prompt.host, prompt.port, prompt.fingerprint
+            );
+            use std::io::{self, Write};
+            print!("Trust this host key? [y/N] ");
+            io::stdout().flush()?;
+
+            let mut answer = String::new();
+            io::stdin().read_line(&mut answer)?;
+            Ok(InteractionResponse::TrustHostKey(matches!(
+                answer.trim(),
+                "y" | "Y" | "yes" | "YES"
+            )))
+        }
+        InteractionRequest::PrivateKeyPassphrase(prompt) => {
+            let message = format!(
+                "Private key passphrase for {}: ",
+                prompt.private_key_path.display()
+            );
+            let passphrase = rpassword::prompt_password(message)?;
+            Ok(InteractionResponse::PrivateKeyPassphrase(passphrase))
+        }
+    }
 }

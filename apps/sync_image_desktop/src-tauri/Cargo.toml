@@ -1,0 +1,20 @@
+[package]
+name = "sync_image_desktop"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[lib]
+name = "sync_image_desktop"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sync_image_core = { path = "../../../crates/sync_image_core" }
+sync_image_client = { path = "../../../crates/sync_image_client" }
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"

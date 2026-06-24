@@ -14,6 +14,7 @@ env:
   WINDOWS_TARGET: x86_64-pc-windows-msvc
   WINDOWS_CLIENT_EXE: sync-image-client.exe
   WINDOWS_RELEASE_ZIP: sync-image-client-windows-x86_64.zip
+  WINDOWS_DESKTOP_ARTIFACT: sync-image-desktop-windows-x86_64
 
 jobs:
   build-windows-client:
@@ -51,3 +52,63 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: dist/${{ env.WINDOWS_RELEASE_ZIP }}
+
+  build-windows-desktop:
+    name: Build Windows desktop GUI
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ env.WINDOWS_TARGET }}
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/sync_image_desktop/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: apps/sync_image_desktop
+        run: npm ci
+
+      - name: Build Tauri desktop app
+        working-directory: apps/sync_image_desktop
+        run: npm run tauri -- build --target $env:WINDOWS_TARGET
+
+      - name: Collect desktop bundles
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path desktop-dist
+          $bundleRoots = @(
+            "target/$env:WINDOWS_TARGET/release/bundle",
+            "apps/sync_image_desktop/src-tauri/target/$env:WINDOWS_TARGET/release/bundle"
+          )
+          $bundles = @()
+          foreach ($root in $bundleRoots) {
+            if (Test-Path $root) {
+              $bundles += Get-ChildItem $root -Recurse -File
+            }
+          }
+          if ($bundles.Count -eq 0) {
+            throw "No Tauri desktop bundle files were found."
+          }
+          $bundles | Copy-Item -Destination desktop-dist
+          Compress-Archive -Path "desktop-dist/*" -DestinationPath "desktop-dist/$env:WINDOWS_DESKTOP_ARTIFACT.zip" -Force
+
+      - name: Upload desktop artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.WINDOWS_DESKTOP_ARTIFACT }}
+          path: desktop-dist/${{ env.WINDOWS_DESKTOP_ARTIFACT }}.zip
+
+      - name: Attach desktop bundle to GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: desktop-dist/${{ env.WINDOWS_DESKTOP_ARTIFACT }}.zip

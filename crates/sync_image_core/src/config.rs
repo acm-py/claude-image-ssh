@@ -1,14 +1,14 @@
 use std::{env, fs, path::PathBuf};
 
 use anyhow::{Context, Result, bail};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{Hotkey, validate_user_name};
 
 pub const DEFAULT_HOTKEY: &str = "Ctrl+Alt+U";
 pub const DEFAULT_CONFIG_RELATIVE_PATH: &str = "claude-image-sync/config.toml";
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClientConfig {
     pub user_name: String,
     #[serde(default = "default_hotkey")]
@@ -16,7 +16,7 @@ pub struct ClientConfig {
     pub upload: UploadConfig,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UploadConfig {
     pub host: String,
     #[serde(default = "default_port")]
@@ -41,6 +41,26 @@ impl ClientConfig {
         let config: Self = toml::from_str(raw)?;
         config.validate()?;
         Ok(config)
+    }
+
+    pub fn to_toml(&self) -> Result<String> {
+        self.validate()?;
+        toml::to_string_pretty(self).context("failed to serialize client config")
+    }
+
+    pub fn save(&self, path: Option<PathBuf>) -> Result<PathBuf> {
+        let path = path.unwrap_or_else(default_config_path);
+        let raw = self.to_toml()?;
+
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).with_context(|| {
+                format!("failed to create config directory {}", parent.display())
+            })?;
+        }
+
+        fs::write(&path, raw)
+            .with_context(|| format!("failed to write config {}", path.display()))?;
+        Ok(path)
     }
 
     pub fn validate(&self) -> Result<()> {
@@ -130,5 +150,26 @@ shared_image_root = "/mnt/xy_internel/share/claude"
         .expect_err("path-like user name should fail");
 
         assert!(err.to_string().contains("user_name"));
+    }
+
+    #[test]
+    fn serializes_with_defaults() {
+        let config = ClientConfig::from_toml(
+            r#"
+user_name = "alice"
+
+[upload]
+host = "upload.internal"
+user = "claude-upload"
+private_key_path = "C:\\Users\\alice\\.ssh\\id_ed25519"
+shared_image_root = "/mnt/xy_internel/share/claude"
+"#,
+        )
+        .expect("config should parse");
+
+        let raw = config.to_toml().expect("config should serialize");
+
+        assert!(raw.contains("hotkey = \"Ctrl+Alt+U\""));
+        assert!(raw.contains("port = 22"));
     }
 }

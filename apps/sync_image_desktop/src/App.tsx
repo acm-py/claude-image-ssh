@@ -9,7 +9,9 @@ type ConfigDraft = {
     host: string;
     port: number;
     user: string;
+    auth_method: "key" | "password";
     private_key_path: string;
+    password: string;
     shared_image_root: string;
   };
 };
@@ -38,6 +40,12 @@ type InteractionRequest =
   | {
       kind: "private_key_passphrase";
       private_key_path: string;
+    }
+  | {
+      kind: "password";
+      host: string;
+      port: number;
+      user: string;
     };
 
 type CommandResponse =
@@ -59,6 +67,10 @@ type InteractionReply =
   | {
       kind: "private_key_passphrase";
       passphrase: string;
+    }
+  | {
+      kind: "password";
+      password: string;
     };
 
 type PendingCommand = "check_connection" | "start_runtime" | null;
@@ -70,7 +82,9 @@ const defaultConfig = (): ConfigDraft => ({
     host: "",
     port: 22,
     user: "",
+    auth_method: "key",
     private_key_path: "",
+    password: "",
     shared_image_root: "",
   },
 });
@@ -292,24 +306,50 @@ export default function App() {
           </Field>
         </div>
 
-        <Field label="Private key path">
-          <div className="file-row">
-            <input
-              value={config.upload.private_key_path}
-              onChange={(event) =>
-                setUploadField("private_key_path", event.target.value)
-              }
-            />
-            <button
-              className="ghost-button"
-              type="button"
-              onClick={handleBrowseKey}
-              disabled={isBusy}
-            >
-              Browse
-            </button>
-          </div>
+        <Field label="Authentication method">
+          <select
+            value={config.upload.auth_method}
+            onChange={(event) =>
+              setUploadField(
+                "auth_method",
+                event.target.value as ConfigDraft["upload"]["auth_method"],
+              )
+            }
+          >
+            <option value="key">Private key</option>
+            <option value="password">Password</option>
+          </select>
         </Field>
+
+        {config.upload.auth_method === "key" ? (
+          <Field label="Private key path">
+            <div className="file-row">
+              <input
+                value={config.upload.private_key_path}
+                onChange={(event) =>
+                  setUploadField("private_key_path", event.target.value)
+                }
+              />
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={handleBrowseKey}
+                disabled={isBusy}
+              >
+                Browse
+              </button>
+            </div>
+          </Field>
+        ) : (
+          <Field label="Password (stored in plain text)">
+            <input
+              type="password"
+              value={config.upload.password}
+              placeholder="Leave empty to enter on first connection"
+              onChange={(event) => setUploadField("password", event.target.value)}
+            />
+          </Field>
+        )}
 
         <div className="button-row">
           <button type="button" onClick={handleSave} disabled={isBusy}>
@@ -387,7 +427,7 @@ export default function App() {
                   </button>
                 </div>
               </>
-            ) : (
+            ) : interaction.kind === "private_key_passphrase" ? (
               <>
                 <h3>Private Key Passphrase</h3>
                 <p>{interaction.private_key_path}</p>
@@ -404,6 +444,43 @@ export default function App() {
                       submitInteraction({
                         kind: "private_key_passphrase",
                         passphrase,
+                      })
+                    }
+                  >
+                    Continue
+                  </button>
+                  <button
+                    className="ghost-button"
+                    type="button"
+                    onClick={() => setInteraction(null)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h3>SSH Password</h3>
+                <p>
+                  {interaction.user}@{interaction.host}:{interaction.port}
+                </p>
+                <p className="subtle">
+                  Saved to the config file in plain text after a successful
+                  connection.
+                </p>
+                <input
+                  type="password"
+                  value={passphrase}
+                  onChange={(event) => setPassphrase(event.target.value)}
+                  placeholder="Enter password"
+                />
+                <div className="button-row">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      submitInteraction({
+                        kind: "password",
+                        password: passphrase,
                       })
                     }
                   >

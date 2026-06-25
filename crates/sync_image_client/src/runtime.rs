@@ -1,10 +1,11 @@
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Result, anyhow, bail};
 use sync_image_core::ClientConfig;
 
 use crate::{
-    client::{ClientActionState, connect_uploader},
+    client::{ClientActionState, connect_uploader_persisting},
     hotkey_runtime::{self, HotkeyRuntimeHandle},
     image_input,
     interaction::InteractionResponse,
@@ -31,9 +32,10 @@ impl ClientRuntime {
 pub fn start_runtime(
     config: ClientConfig,
     response: Option<InteractionResponse>,
+    config_path: Option<PathBuf>,
 ) -> Result<ClientActionState<ClientRuntime>> {
     let hotkey = config.hotkey.parse()?;
-    let uploader = match connect_uploader(config, response)? {
+    let uploader = match connect_uploader_persisting(config, response, config_path)? {
         ClientActionState::Ready(uploader) => uploader,
         ClientActionState::NeedsInteraction(request) => {
             return Ok(ClientActionState::NeedsInteraction(request));
@@ -91,12 +93,13 @@ impl RuntimeManager {
         &mut self,
         config: ClientConfig,
         response: Option<InteractionResponse>,
+        config_path: Option<PathBuf>,
     ) -> Result<ClientActionState<RuntimeStatus>> {
         if self.runtime.is_some() {
             bail!("runtime is already running");
         }
 
-        match start_runtime(config, response)? {
+        match start_runtime(config, response, config_path)? {
             ClientActionState::Ready(runtime) => {
                 self.runtime = Some(runtime);
                 Ok(ClientActionState::Ready(RuntimeStatus::Running))

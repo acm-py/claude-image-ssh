@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use anyhow::{Result, anyhow, bail};
 use sync_image_core::ClientConfig;
 
@@ -27,11 +29,28 @@ pub fn connect_uploader(
     }
 }
 
+/// Connects and, on success, persists any interactively captured password to the
+/// config file at `config_path` (or the default path when `None`).
+pub fn connect_uploader_persisting(
+    config: ClientConfig,
+    response: Option<InteractionResponse>,
+    config_path: Option<PathBuf>,
+) -> Result<ClientActionState<SftpUploader>> {
+    match connect_uploader(config, response)? {
+        ClientActionState::Ready(mut uploader) => {
+            uploader.persist_captured_password(config_path)?;
+            Ok(ClientActionState::Ready(uploader))
+        }
+        other => Ok(other),
+    }
+}
+
 pub fn run_check(
     config: ClientConfig,
     response: Option<InteractionResponse>,
+    config_path: Option<PathBuf>,
 ) -> Result<ClientActionState<()>> {
-    let uploader = match connect_uploader(config, response)? {
+    let uploader = match connect_uploader_persisting(config, response, config_path)? {
         ClientActionState::Ready(uploader) => uploader,
         ClientActionState::NeedsInteraction(request) => {
             return Ok(ClientActionState::NeedsInteraction(request));
@@ -46,9 +65,10 @@ pub fn run_check(
 pub fn run_client_once(
     config: ClientConfig,
     response: Option<InteractionResponse>,
+    config_path: Option<PathBuf>,
 ) -> Result<ClientActionState<()>> {
     let hotkey = config.hotkey.parse()?;
-    let uploader = match connect_uploader(config, response)? {
+    let uploader = match connect_uploader_persisting(config, response, config_path)? {
         ClientActionState::Ready(uploader) => uploader,
         ClientActionState::NeedsInteraction(request) => {
             return Ok(ClientActionState::NeedsInteraction(request));
@@ -85,6 +105,9 @@ pub fn resolve_interaction(
             InteractionRequest::PrivateKeyPassphrase(_),
             Some(InteractionResponse::PrivateKeyPassphrase(value)),
         ) => Ok(InteractionResponse::PrivateKeyPassphrase(value)),
+        (InteractionRequest::Password(_), Some(InteractionResponse::Password(value))) => {
+            Ok(InteractionResponse::Password(value))
+        }
         _ => Err(anyhow!("missing or mismatched interaction response")),
     }
 }

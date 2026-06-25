@@ -45,9 +45,30 @@ hotkey = "Ctrl+Alt+U"
 host = "upload-host.example.internal"
 port = 22
 user = "claude-upload"
+auth_method = "key"
 private_key_path = "C:\\Users\\Alice\\.ssh\\claude_upload_ed25519"
 shared_image_root = "/mnt/xy_internel/share/claude"
 ```
+
+### SSH Authentication
+
+`upload.auth_method` selects how the client authenticates:
+
+- `"key"` (default, backward compatible): public-key auth using `private_key_path`. If the key is passphrase-protected, the passphrase is requested on demand and never persisted.
+- `"password"`: password auth. Provide `upload.password` directly, or leave it unset to be prompted on the first connection. On the first successful connection the entered password is written back to `config.toml`.
+
+```toml
+[upload]
+host = "upload-host.example.internal"
+port = 22
+user = "claude-upload"
+auth_method = "password"
+# password = "your-ssh-password"   # optional; prompted and saved on first connect
+shared_image_root = "/mnt/xy_internel/share/claude"
+```
+
+> ⚠️ Password auth stores the SSH password in plain text in `config.toml`
+> (`%APPDATA%\claude-image-sync\config.toml`). Prefer key auth where possible.
 
 Run a deployment check:
 
@@ -115,6 +136,27 @@ It is a minimal control panel over the existing Windows client flow:
 
 The existing CLI remains supported and is still the underlying source of truth for upload behavior.
 
+### Desktop Upload Service
+
+The desktop app is a control panel for the Windows upload runtime. It uses the same config format as the CLI and reads the default file from:
+
+```text
+%APPDATA%\claude-image-sync\config.toml
+```
+
+Run it from the desktop bundle, edit the upload fields, then save the config and start the runtime. The key upload settings are:
+
+```toml
+[upload]
+host = "upload-host.example.internal"
+port = 22
+user = "claude-upload"
+private_key_path = "C:\\Users\\Alice\\.ssh\\claude_upload_ed25519"
+shared_image_root = "/mnt/xy_internel/share/claude"
+```
+
+The desktop app exposes the same connectivity check as the CLI. Use it before enabling the hotkey runtime to confirm SSH/SFTP access and remote write permission.
+
 ## MCP Server
 
 Build the container:
@@ -122,6 +164,8 @@ Build the container:
 ```bash
 docker build -f docker/Dockerfile.mcp -t claude-image-sync-mcp:latest .
 ```
+
+The Dockerfile builds the Rust MCP binary in a Rust builder stage and copies the `sync-image-mcp` executable into a small runtime image. Build from the repository root so the workspace `Cargo.toml` and `Cargo.lock` are available.
 
 Example stdio MCP command:
 
@@ -139,6 +183,34 @@ The MCP tool is named `get_latest_screenshot`. It returns:
 - selected filename
 - upload time parsed from the filename
 
+### Add to Claude MCP
+
+Register the server in Claude Desktop's MCP config as a stdio server that runs the container above. Replace `alice` with your actual Claude image user:
+
+```json
+{
+  "mcpServers": {
+    "sync-image-mcp": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "-e",
+        "CLAUDE_IMAGE_ROOT=/data/claude-images",
+        "-e",
+        "CLAUDE_IMAGE_USER=alice",
+        "-v",
+        "/mnt/xy_internel/share/claude:/data/claude-images:ro",
+        "claude-image-sync-mcp:latest"
+      ]
+    }
+  }
+}
+```
+
+If your Claude Desktop config uses a different path or platform-specific format, keep the same container command and mount, and adjust only the config file location around it. Restart Claude after adding the server.
+
 ## MVP Limits
 
 Out of scope for MVP:
@@ -149,5 +221,4 @@ Out of scope for MVP:
 - retention, quota, cleanup, or pruning
 - listing or selecting older images
 - WebP, animated GIF, PDF, or multi-file drag/drop input
-- password SSH login
 - system `scp` or OpenSSH ControlMaster

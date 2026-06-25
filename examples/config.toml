@@ -6,5 +6,12 @@ app_title = "qy-image-upload"
 host = "upload-host.example.internal"
 port = 22
 user = "claude-upload"
+# auth_method selects how the client authenticates: "key" (default) or "password".
+auth_method = "key"
 private_key_path = "C:\\Users\\Alice\\.ssh\\claude_upload_ed25519"
+# For password auth, set auth_method = "password" and either provide the password
+# below or leave it unset to be prompted on first connection (the entered password
+# is then saved here in plain text):
+# auth_method = "password"
+# password = "your-ssh-password"
 shared_image_root = "/mnt/xy_internel/share/claude"

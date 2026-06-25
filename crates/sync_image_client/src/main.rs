@@ -9,18 +9,19 @@ use sync_image_core::ClientConfig;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    let config = ClientConfig::load(cli.config)?;
+    let config_path = cli.config.clone();
+    let config = ClientConfig::load(config_path.clone())?;
 
     match cli.command.unwrap_or(Command::Run) {
-        Command::Run => run_client(config),
-        Command::Check => run_check_command(config),
+        Command::Run => run_client(config, config_path),
+        Command::Check => run_check_command(config, config_path),
     }
 }
 
-fn run_client(config: ClientConfig) -> Result<()> {
+fn run_client(config: ClientConfig, config_path: Option<std::path::PathBuf>) -> Result<()> {
     let mut response = None;
     loop {
-        match run_client_once(config.clone(), response.take())? {
+        match run_client_once(config.clone(), response.take(), config_path.clone())? {
             ClientActionState::Ready(()) => return Ok(()),
             ClientActionState::NeedsInteraction(request) => {
                 response = Some(prompt_for_interaction(request)?);
@@ -29,10 +30,10 @@ fn run_client(config: ClientConfig) -> Result<()> {
     }
 }
 
-fn run_check_command(config: ClientConfig) -> Result<()> {
+fn run_check_command(config: ClientConfig, config_path: Option<std::path::PathBuf>) -> Result<()> {
     let mut response = None;
     loop {
-        match run_check(config.clone(), response.take())? {
+        match run_check(config.clone(), response.take(), config_path.clone())? {
             ClientActionState::Ready(()) => {
                 println!(
                     "check passed: configuration, SSH/SFTP, host key and remote write access are valid"
@@ -71,6 +72,14 @@ fn prompt_for_interaction(request: InteractionRequest) -> Result<InteractionResp
             );
             let passphrase = rpassword::prompt_password(message)?;
             Ok(InteractionResponse::PrivateKeyPassphrase(passphrase))
+        }
+        InteractionRequest::Password(prompt) => {
+            let message = format!(
+                "SSH password for {}@{}:{}: ",
+                prompt.user, prompt.host, prompt.port
+            );
+            let password = rpassword::prompt_password(message)?;
+            Ok(InteractionResponse::Password(password))
         }
     }
 }

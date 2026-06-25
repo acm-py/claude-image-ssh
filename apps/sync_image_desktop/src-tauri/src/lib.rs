@@ -6,7 +6,7 @@ use sync_image_client::{
     interaction::{InteractionRequest, InteractionResponse},
     runtime::{RuntimeManager, RuntimeStatus},
 };
-use sync_image_core::{ClientConfig, UploadConfig, config::default_config_path};
+use sync_image_core::{AuthMethod, ClientConfig, UploadConfig, config::default_config_path};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ConfigDraft {
@@ -20,7 +20,10 @@ struct UploadDraft {
     host: String,
     port: u16,
     user: String,
+    auth_method: String,
     private_key_path: String,
+    #[serde(default)]
+    password: String,
     shared_image_root: String,
 }
 
@@ -64,6 +67,11 @@ enum InteractionRequestDto {
     PrivateKeyPassphrase {
         private_key_path: String,
     },
+    Password {
+        host: String,
+        port: u16,
+        user: String,
+    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -71,6 +79,7 @@ enum InteractionRequestDto {
 enum InteractionReplyDto {
     TrustHostKey { trusted: bool },
     PrivateKeyPassphrase { passphrase: String },
+    Password { password: String },
 }
 
 struct DesktopState {
@@ -119,7 +128,7 @@ fn check_connection(
     let config = config.try_into_client_config()?;
     let interaction = interaction.map(InteractionReplyDto::into_interaction_response);
     map_client_action(
-        run_check(config, interaction).map_err(|err| err.to_string())?,
+        run_check(config, interaction, None).map_err(|err| err.to_string())?,
         "Connection check passed.",
     )
 }
@@ -138,7 +147,7 @@ fn start_runtime(
         .map_err(|_| "runtime manager lock was poisoned".to_string())?;
 
     match runtime
-        .start(config, interaction)
+        .start(config, interaction, None)
         .map_err(|err| err.to_string())?
     {
         ClientActionState::Ready(status) => Ok(CommandResponse::Ok {
@@ -183,17 +192,26 @@ impl ConfigDraft {
                 host: config.upload.host,
                 port: config.upload.port,
                 user: config.upload.user,
+                auth_method: auth_method_label(config.upload.auth_method).to_string(),
                 private_key_path: config
                     .upload
                     .private_key_path
                     .to_string_lossy()
                     .into_owned(),
+                password: config.upload.password.unwrap_or_default(),
                 shared_image_root: config.upload.shared_image_root,
             },
         }
     }
 
     fn try_into_client_config(self) -> Result<ClientConfig, String> {
+        let auth_method = parse_auth_method(&self.upload.auth_method)?;
+        let password = if self.upload.password.is_empty() {
+            None
+        } else {
+            Some(self.upload.password)
+        };
+
         let config = ClientConfig {
             user_name: self.user_name,
             hotkey: self.hotkey,
@@ -201,7 +219,9 @@ impl ConfigDraft {
                 host: self.upload.host,
                 port: self.upload.port,
                 user: self.upload.user,
+                auth_method,
                 private_key_path: PathBuf::from(self.upload.private_key_path),
+                password,
                 shared_image_root: self.upload.shared_image_root,
             },
         };
@@ -220,10 +240,27 @@ impl Default for ConfigDraft {
                 host: String::new(),
                 port: 22,
                 user: String::new(),
+                auth_method: auth_method_label(AuthMethod::default()).to_string(),
                 private_key_path: String::new(),
+                password: String::new(),
                 shared_image_root: String::new(),
             },
         }
+    }
+}
+
+fn auth_method_label(method: AuthMethod) -> &'static str {
+    match method {
+        AuthMethod::Key => "key",
+        AuthMethod::Password => "password",
+    }
+}
+
+fn parse_auth_method(value: &str) -> Result<AuthMethod, String> {
+    match value {
+        "key" => Ok(AuthMethod::Key),
+        "password" => Ok(AuthMethod::Password),
+        other => Err(format!("unknown auth_method '{other}'")),
     }
 }
 
@@ -238,6 +275,11 @@ impl InteractionRequestDto {
             InteractionRequest::PrivateKeyPassphrase(request) => Self::PrivateKeyPassphrase {
                 private_key_path: request.private_key_path.to_string_lossy().into_owned(),
             },
+            InteractionRequest::Password(request) => Self::Password {
+                host: request.host,
+                port: request.port,
+                user: request.user,
+            },
         }
     }
 }
@@ -249,6 +291,7 @@ impl InteractionReplyDto {
             Self::PrivateKeyPassphrase { passphrase } => {
                 InteractionResponse::PrivateKeyPassphrase(passphrase)
             }
+            Self::Password { password } => InteractionResponse::Password(password),
         }
     }
 }

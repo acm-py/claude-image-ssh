@@ -16,13 +16,32 @@ pub struct ClientConfig {
     pub upload: UploadConfig,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthMethod {
+    /// SSH public-key authentication using `private_key_path`.
+    #[default]
+    Key,
+    /// SSH password authentication using `password`.
+    Password,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UploadConfig {
     pub host: String,
     #[serde(default = "default_port")]
     pub port: u16,
     pub user: String,
+    /// Authentication method. Defaults to `key` so existing configs keep working.
+    #[serde(default)]
+    pub auth_method: AuthMethod,
+    /// Private key path. Required when `auth_method = "key"`.
+    #[serde(default)]
     pub private_key_path: PathBuf,
+    /// SSH password. Used when `auth_method = "password"`. Persisted in plain text
+    /// after the first successful interactive login.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
     pub shared_image_root: String,
 }
 
@@ -74,8 +93,22 @@ impl ClientConfig {
             bail!("upload.port must be between 1 and 65535");
         }
 
-        if self.upload.private_key_path.as_os_str().is_empty() {
-            bail!("upload.private_key_path is required");
+        match self.upload.auth_method {
+            AuthMethod::Key => {
+                if self.upload.private_key_path.as_os_str().is_empty() {
+                    bail!("upload.private_key_path is required when upload.auth_method = \"key\"");
+                }
+            }
+            AuthMethod::Password => {
+                if self
+                    .upload
+                    .password
+                    .as_deref()
+                    .is_some_and(|password| password.is_empty())
+                {
+                    bail!("upload.password must not be empty when upload.auth_method = \"password\"");
+                }
+            }
         }
 
         Ok(())
@@ -132,6 +165,88 @@ shared_image_root = "/mnt/xy_internel/share/claude"
 
         assert_eq!(config.hotkey, DEFAULT_HOTKEY);
         assert_eq!(config.upload.port, 22);
+        assert_eq!(config.upload.auth_method, AuthMethod::Key);
+        assert!(config.upload.password.is_none());
+    }
+
+    #[test]
+    fn parses_password_auth_config_without_private_key() {
+        let config = ClientConfig::from_toml(
+            r#"
+user_name = "alice"
+
+[upload]
+host = "upload.internal"
+user = "claude-upload"
+auth_method = "password"
+password = "s3cret"
+shared_image_root = "/mnt/xy_internel/share/claude"
+"#,
+        )
+        .expect("password config should parse without a private key");
+
+        assert_eq!(config.upload.auth_method, AuthMethod::Password);
+        assert_eq!(config.upload.password.as_deref(), Some("s3cret"));
+    }
+
+    #[test]
+    fn parses_password_auth_config_without_password() {
+        let config = ClientConfig::from_toml(
+            r#"
+user_name = "alice"
+
+[upload]
+host = "upload.internal"
+user = "claude-upload"
+auth_method = "password"
+shared_image_root = "/mnt/xy_internel/share/claude"
+"#,
+        )
+        .expect("password config may omit the password for interactive entry");
+
+        assert_eq!(config.upload.auth_method, AuthMethod::Password);
+        assert!(config.upload.password.is_none());
+    }
+
+    #[test]
+    fn rejects_empty_password_in_password_mode() {
+        let err = ClientConfig::from_toml(
+            r#"
+user_name = "alice"
+
+[upload]
+host = "upload.internal"
+user = "claude-upload"
+auth_method = "password"
+password = ""
+shared_image_root = "/mnt/xy_internel/share/claude"
+"#,
+        )
+        .expect_err("empty password should fail");
+
+        assert!(err.to_string().contains("upload.password"));
+    }
+
+    #[test]
+    fn serializes_password_when_present() {
+        let config = ClientConfig::from_toml(
+            r#"
+user_name = "alice"
+
+[upload]
+host = "upload.internal"
+user = "claude-upload"
+auth_method = "password"
+password = "s3cret"
+shared_image_root = "/mnt/xy_internel/share/claude"
+"#,
+        )
+        .expect("config should parse");
+
+        let raw = config.to_toml().expect("config should serialize");
+
+        assert!(raw.contains("auth_method = \"password\""));
+        assert!(raw.contains("password = \"s3cret\""));
     }
 
     #[test]

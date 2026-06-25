@@ -9,11 +9,12 @@ use anyhow::{Context, Result, anyhow};
 use chrono::Utc;
 use sha2::{Digest, Sha256};
 use ssh2::{Session, Sftp};
-use sync_image_core::{ClientConfig, build_user_dir, format_upload_filename};
+use sync_image_core::{AuthMethod, ClientConfig, build_user_dir, format_upload_filename};
 use uuid::Uuid;
 
 use crate::interaction::{
-    InteractionRequest, InteractionResponse, PrivateKeyPassphraseRequest, TrustHostKeyRequest,
+    InteractionRequest, InteractionResponse, PasswordRequest, PrivateKeyPassphraseRequest,
+    TrustHostKeyRequest,
 };
 
 const CHECK_FILE_NAME: &str = ".claude-image-sync-check.tmp";
@@ -26,6 +27,9 @@ pub struct UploadedFile {
 pub struct SftpUploader {
     config: ClientConfig,
     session: Session,
+    /// Password captured through interaction during this connection that is not
+    /// yet persisted in the config file. Taken by the caller to write it back.
+    newly_captured_password: Option<String>,
 }
 
 #[derive(Debug)]
@@ -42,11 +46,45 @@ impl From<anyhow::Error> for ConnectError {
 
 impl SftpUploader {
     pub fn connect(
-        config: ClientConfig,
+        mut config: ClientConfig,
         response: Option<InteractionResponse>,
     ) -> std::result::Result<Self, ConnectError> {
-        let session = connect_session(&config, response)?;
-        Ok(Self { config, session })
+        let session = connect_session(&config, response.clone())?;
+
+        // A password supplied interactively (not already in the config) is kept
+        // in memory so reconnects can reuse it, and exposed for write-back.
+        let newly_captured_password = match config.upload.auth_method {
+            AuthMethod::Password if config.upload.password.is_none() => {
+                response.and_then(InteractionResponse::expect_password)
+            }
+            _ => None,
+        };
+        if let Some(password) = &newly_captured_password {
+            config.upload.password = Some(password.clone());
+        }
+
+        Ok(Self {
+            config,
+            session,
+            newly_captured_password,
+        })
+    }
+
+    /// Takes the password captured interactively during connect, if any, so the
+    /// caller can persist it to the config file after a successful connection.
+    pub fn take_newly_captured_password(&mut self) -> Option<String> {
+        self.newly_captured_password.take()
+    }
+
+    /// Persists the config (including a freshly captured password) to disk when a
+    /// password was supplied interactively during connect. No-op otherwise.
+    pub fn persist_captured_password(&mut self, config_path: Option<PathBuf>) -> Result<()> {
+        if self.take_newly_captured_password().is_some() {
+            self.config
+                .save(config_path)
+                .context("failed to persist password to config file")?;
+        }
+        Ok(())
     }
 
     pub fn upload_png(&mut self, png_bytes: &[u8]) -> Result<UploadedFile> {
@@ -191,6 +229,49 @@ fn verify_host_key(
 }
 
 fn authenticate(
+    config: &ClientConfig,
+    session: &mut Session,
+    response: Option<InteractionResponse>,
+) -> std::result::Result<(), ConnectError> {
+    match config.upload.auth_method {
+        AuthMethod::Key => authenticate_with_key(config, session, response),
+        AuthMethod::Password => authenticate_with_password(config, session, response),
+    }
+}
+
+fn authenticate_with_password(
+    config: &ClientConfig,
+    session: &mut Session,
+    response: Option<InteractionResponse>,
+) -> std::result::Result<(), ConnectError> {
+    let password = match &config.upload.password {
+        Some(password) => password.clone(),
+        None => match response.and_then(InteractionResponse::expect_password) {
+            Some(password) => password,
+            None => {
+                return Err(ConnectError::NeedsInteraction(InteractionRequest::Password(
+                    PasswordRequest {
+                        host: config.upload.host.clone(),
+                        port: config.upload.port,
+                        user: config.upload.user.clone(),
+                    },
+                )));
+            }
+        },
+    };
+
+    session
+        .userauth_password(&config.upload.user, &password)
+        .context("password authentication failed")?;
+
+    if !session.authenticated() {
+        return Err(anyhow!("password authentication did not complete").into());
+    }
+
+    Ok(())
+}
+
+fn authenticate_with_key(
     config: &ClientConfig,
     session: &mut Session,
     response: Option<InteractionResponse>,
